@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Handnotes",
+  title: "Ceker Ayam Translator",
   description: "Turn messy handwriting into structured notes.",
 };
 
