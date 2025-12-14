@@ -1,66 +1,43 @@
+// src/app/api/documents/[id]/pages/route.ts
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseServer";
+import { createClient } from "@supabase/supabase-js";
 
-export const runtime = "nodejs";
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-export async function POST(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
+type Ctx = { params: { id: string } };
+
+export async function POST(req: Request, { params }: Ctx) {
   try {
-    const form = await req.formData();
-    const file = form.get("file") as File | null;
-
-    if (!file) {
-      return NextResponse.json({ error: "Missing file" }, { status: 400 });
-    }
-
     const documentId = params.id;
 
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const body = await req.json().catch(() => ({}));
+    const pageIndex =
+      typeof body?.page_index === "number" ? body.page_index : 1;
 
-    const ext = file.name.split(".").pop() || "jpg";
-    const storagePath = `documents/${documentId}/${crypto.randomUUID()}.${ext}`;
-
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from("handnotes") // <-- make sure your bucket name is "handnotes"
-      .upload(storagePath, buffer, {
-        contentType: file.type || "image/jpeg",
-        upsert: false,
-      });
-
-    if (uploadError) {
-      console.error("UPLOAD ERROR:", uploadError);
-      return NextResponse.json({ error: uploadError }, { status: 500 });
-    }
-
-    const { data: publicUrl } = supabaseAdmin.storage
-      .from("handnotes")
-      .getPublicUrl(storagePath);
-
-    const imageUrl = publicUrl.publicUrl;
-
-    const { data, error } = await supabaseAdmin
+    // Example insert (adjust table/columns to match your schema)
+    const { data, error } = await supabase
       .from("pages")
       .insert({
         document_id: documentId,
-        page_number: 1,
-        image_url: imageUrl,
+        page_index: pageIndex,
       })
       .select("*")
       .single();
 
     if (error) {
-      console.error("DB ERROR:", error);
-      return NextResponse.json({ error }, { status: 500 });
+      return NextResponse.json(
+        { error: { message: error.message } },
+        { status: 400 }
+      );
     }
 
-    return NextResponse.json({ page: data });
+    return NextResponse.json({ page: data }, { status: 200 });
   } catch (e: any) {
-    console.error("SERVER ERROR:", e);
     return NextResponse.json(
-      { error: { message: e?.message ?? "Unknown error" } },
+      { error: { message: e?.message || "Unknown error" } },
       { status: 500 }
     );
   }
