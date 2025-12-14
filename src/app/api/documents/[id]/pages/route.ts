@@ -1,43 +1,33 @@
-// src/app/api/documents/[id]/pages/route.ts
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextRequest, NextResponse } from "next/server";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+type Ctx = {
+  params: Promise<{ id: string }>;
+};
 
-type Ctx = { params: { id: string } };
-
-export async function POST(req: Request, { params }: Ctx) {
+export async function POST(req: NextRequest, { params }: Ctx) {
   try {
-    const documentId = params.id;
+    const { id } = await params;
 
-    const body = await req.json().catch(() => ({}));
-    const pageIndex =
-      typeof body?.page_index === "number" ? body.page_index : 1;
+    // If you're receiving a multipart form upload:
+    const formData = await req.formData();
+    const file = formData.get("file") as File | null;
 
-    // Example insert (adjust table/columns to match your schema)
-    const { data, error } = await supabase
-      .from("pages")
-      .insert({
-        document_id: documentId,
-        page_index: pageIndex,
-      })
-      .select("*")
-      .single();
-
-    if (error) {
+    if (!file) {
       return NextResponse.json(
-        { error: { message: error.message } },
+        { error: { message: "Missing file" } },
         { status: 400 }
       );
     }
 
-    return NextResponse.json({ page: data }, { status: 200 });
+    // TODO: your existing logic here:
+    // - upload to storage
+    // - insert row into pages table
+    // - return { page: ... }
+
+    return NextResponse.json({ page: { ok: true, document_id: id } });
   } catch (e: any) {
     return NextResponse.json(
-      { error: { message: e?.message || "Unknown error" } },
+      { error: { message: e?.message ?? "Unknown error" } },
       { status: 500 }
     );
   }
