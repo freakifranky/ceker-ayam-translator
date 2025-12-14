@@ -4,22 +4,33 @@ type Ctx = {
   params: Promise<{ pageId: string }>;
 };
 
-export async function POST(_req: NextRequest, { params }: Ctx) {
+export async function POST(req: NextRequest, { params }: Ctx) {
   try {
     const { pageId } = await params;
 
-    // ✅ keep your existing processing logic here
-    // - fetch page by pageId
-    // - run OCR / processing
-    // - update DB
-    // - return updated page payload
+    // call your existing OCR endpoint (same deployment)
+    const baseUrl = req.nextUrl.origin;
 
-    return NextResponse.json({
-      page: {
-        id: pageId,
-        // ...your real fields here
-      },
+    const ocrRes = await fetch(`${baseUrl}/api/ocr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pageId }),
+      cache: "no-store",
     });
+
+    const ocrJson = await ocrRes.json();
+
+    if (!ocrRes.ok) {
+      return NextResponse.json(
+        { error: { message: ocrJson?.error?.message || "OCR failed" } },
+        { status: ocrRes.status }
+      );
+    }
+
+    return NextResponse.json(
+      { page: { id: pageId, ocr_text: ocrJson.text } },
+      { status: 200 }
+    );
   } catch (e: any) {
     return NextResponse.json(
       { error: { message: e?.message ?? "Unknown error" } },
