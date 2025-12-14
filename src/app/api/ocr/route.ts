@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
@@ -10,12 +10,16 @@ const supabase = createClient(
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const { pageId } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const pageId = String(body?.pageId || "").trim();
 
     if (!pageId) {
-      return NextResponse.json({ error: { message: "Missing pageId" } }, { status: 400 });
+      return NextResponse.json(
+        { error: { message: "Missing pageId" } },
+        { status: 400 }
+      );
     }
 
     // 1) Load page row
@@ -27,44 +31,79 @@ export async function POST(req: Request) {
 
     if (pageErr || !page?.image_original_url) {
       return NextResponse.json(
-        { error: { message: pageErr?.message || "Page not found / missing image_original_url" } },
+        {
+          error: {
+            message:
+              pageErr?.message || "Page not found / missing image_original_url",
+          },
+        },
         { status: 404 }
       );
     }
 
-    const imageUrl = String(page.image_original_url).trim(); // keep clean
+    const imageUrl = String(page.image_original_url).trim();
 
-    // 2) Fetch the image on YOUR server
-    const imgRes = await fetch(imageUrl);
+    // 2) Download image server-side
+    const imgRes = await fetch(imageUrl, { cache: "no-store" });
     if (!imgRes.ok) {
       return NextResponse.json(
-        { error: { message: `Failed to download image: ${imgRes.status} ${imgRes.statusText}` } },
+        {
+          error: {
+            message: `Failed to download image: ${imgRes.status} ${imgRes.statusText}`,
+          },
+        },
         { status: 500 }
       );
     }
 
-    const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+    const contentType =
+      imgRes.headers.get("content-type") || "application/octet-stream";
+
+    if (!contentType.startsWith("image/")) {
+      return NextResponse.json(
+        { error: { message: `URL did not return an image (got ${contentType})` } },
+        { status: 400 }
+      );
+    }
+
     const arrayBuffer = await imgRes.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString("base64");
     const dataUrl = `data:${contentType};base64,${base64}`;
 
-    // 3) Send image bytes to OpenAI (no URL download needed)
+    // 3) OpenAI vision extract (FIX: add detail + object form)
     const resp = await openai.responses.create({
       model: "gpt-4.1-mini",
       input: [
         {
           role: "user",
           content: [
-            { type: "input_text", text: "Extract the handwritten text exactly. Preserve line breaks." },
-            { type: "input_image", image_url: dataUrl },
+            {
+              type: "input_text",
+              text:
+                "Extract the handwritten text exactly. Preserve line breaks. " +
+                "If some words are unclear, keep them as [unreadable].",
+            },
+            {
+              type: "input_image",
+              image_url: { url: dataUrl },
+              detail: "high",
+            },
           ],
         },
       ],
     });
 
-    const text =
-      resp.output_text?.trim() ||
-      "";
+    const text = (resp.output_text || "").trim();
+
+    // (Optional but recommended) save OCR result to DB
+    // comment this out if your pages table doesn't have these columns
+    await supabase
+      .from("pages")
+      .update({
+        ocr_text: text,
+        processed_at: new Date().toISOString(),
+      })
+      .eq("id", pageId);
 
     return NextResponse.json({ text }, { status: 200 });
   } catch (e: any) {
