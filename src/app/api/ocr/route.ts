@@ -85,8 +85,8 @@ export async function POST(req: NextRequest) {
             },
             {
               type: "input_image",
-              image_url: { url: dataUrl },
-              detail: "high",
+  image_url: dataUrl,   // ✅ string (your SDK expects string)
+  detail: "high",       // ✅ required
             },
           ],
         },
